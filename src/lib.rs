@@ -27,6 +27,8 @@ impl Register {
     const ACCESS_CONFIG: u8 = 0xAC;
     const START_CONVERT: u8 = 0xEE;
     const STOP_CONVERT: u8 = 0x22;
+    const READ_COUNTER: u8 = 0xA8;
+    const READ_SLOPE: u8 = 0xA9;
 }
 
 struct ConfigRegBits;
@@ -53,7 +55,7 @@ const ADDR_DEFAULT: u8 = 0x4A;
 
 impl<I2C, E> ds1621<I2C>
 where
-    I2C: Read<Error = E> + Write<Error = E>,
+    I2C: Read<Error = E> + Write<Error = E> + WriteRead<Error = E>,
 {
     pub fn new_default(i2c: I2C) -> Self {
         ds1621 {
@@ -95,23 +97,7 @@ where
     }
 }
 
-impl<I2C, E> ds1621<I2C>
-where
-    I2C: Read<Error = E>,
-{
-    pub fn read_config(&mut self) -> Result<u8, E> {
-        let mut u8rd_buff: [u8; 1] = [0; 1];
-
-        match self.i2c.read(self.addr, &mut u8rd_buff) {
-            Ok(()) => {
-                return Ok(u8rd_buff[0]);
-            }
-            Err(e) => {
-                return Err(e);
-            }
-        }
-    }
-}
+impl<I2C, E> ds1621<I2C> where I2C: Read<Error = E> {}
 
 impl<I2C, E> ds1621<I2C>
 where
@@ -188,6 +174,86 @@ where
                 }
 
                 return Ok(temp);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    }
+    /// Methode permettant de recuperer la temperature avec une valeur precise
+    /// Contrairement à la methode read_temperature qui ne permet d'obtenir qu'une temperature
+    /// à 0.5°C pres, cette methode ci read_temperature_fine permet d'obtenir la temperature
+    /// avec une precision de l'odre de 0.1°C
+    pub fn read_temperature_fine(&mut self) -> Result<f32, E> {
+        let mut raw_read: [u8; 1] = [0; 1];
+        let mut temperature: f32 = 0.0;
+
+        match self
+            .i2c
+            .write_read(self.addr, &[Register::TEMPERATURE], &mut raw_read)
+        {
+            Ok(()) => match self.read_counter() {
+                Ok(ccounter) => match self.read_slope() {
+                    Ok(slope) => {
+                        temperature = raw_read[0] as f32;
+                        temperature -= 0.25;
+                        temperature += ((slope as f32 - ccounter as f32) / slope as f32);
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
+                },
+                Err(e) => {
+                    return Err(e);
+                }
+            },
+            Err(e) => return Err(e),
+        }
+
+        return Ok(temperature);
+    }
+
+    pub fn read_config(&mut self) -> Result<u8, E> {
+        let mut u8rd_buff: [u8; 1] = [0; 1];
+
+        match self
+            .i2c
+            .write_read(self.addr, &[Register::ACCESS_CONFIG], &mut u8rd_buff)
+        {
+            Ok(()) => {
+                return Ok(u8rd_buff[0]);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    }
+
+    pub fn read_counter(&mut self) -> Result<u8, E> {
+        let mut u8rd_buff: [u8; 1] = [0; 1];
+
+        match self
+            .i2c
+            .write_read(self.addr, &[Register::READ_COUNTER], &mut u8rd_buff)
+        {
+            Ok(()) => {
+                return Ok(u8rd_buff[0]);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    }
+
+    pub fn read_slope(&mut self) -> Result<u8, E> {
+        let mut u8rd_buff: [u8; 1] = [0; 1];
+
+        match self
+            .i2c
+            .write_read(self.addr, &[Register::READ_SLOPE], &mut u8rd_buff)
+        {
+            Ok(()) => {
+                return Ok(u8rd_buff[0]);
             }
             Err(e) => {
                 return Err(e);
